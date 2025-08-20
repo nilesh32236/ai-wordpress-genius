@@ -127,105 +127,47 @@ function ai_wp_genius_render_dashboard_page() {
 
 		<hr>
 
-		<h2><?php _e( 'AI Bug Finder', 'ai-wordpress-genius' ); ?></h2>
-        <p><?php _e( 'Select a plugin or theme to scan for common issues and deprecated code.', 'ai-wordpress-genius' ); ?></p>
+		<h2><?php _e( 'Agentic Bug Finder (Beta)', 'ai-wordpress-genius' ); ?></h2>
+		<p><?php _e( 'Describe a bug or issue you are experiencing, select the suspected plugin or theme, and the AI agent will attempt to diagnose and fix it.', 'ai-wordpress-genius' ); ?></p>
 
-        <?php
-        $scan_results = get_transient( 'ai_wp_genius_scan_results' );
-        if ( $scan_results ) :
-            // Display results if they exist
-            ?>
-            <div id="ai-scan-results">
-                <h3><?php printf( __( 'Scan Results for %s', 'ai-wordpress-genius' ), '<code>' . esc_html( $scan_results['name'] ) . '</code>' ); ?></h3>
-                <?php if ( ! empty( $scan_results['findings'] ) ) : ?>
-                    <table class="wp-list-table widefat striped">
-                        <thead>
-                            <tr>
-                                <th><?php _e( 'File', 'ai-wordpress-genius' ); ?></th>
-                                <th><?php _e( 'Line', 'ai-wordpress-genius' ); ?></th>
-                                <th><?php _e( 'Issue Found', 'ai-wordpress-genius' ); ?></th>
-                                <th><?php _e( 'AI Suggestion', 'ai-wordpress-genius' ); ?></th>
-                                <th><?php _e( 'Action', 'ai-wordpress-genius' ); ?></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ( $scan_results['findings'] as $finding ) : ?>
-                                <tr>
-                                    <td><code><?php echo esc_html( $finding['file'] ); ?></code></td>
-                                    <td><?php echo esc_html( $finding['line'] ); ?></td>
-                                    <td><code><?php echo esc_html( $finding['issue'] ); ?></code></td>
-                                    <td>
-                                        <p><?php echo esc_html( $finding['ai_suggestion']['explanation'] ); ?></p>
-                                        <p><strong><?php _e( 'Suggestion:', 'ai-wordpress-genius' ); ?></strong></p>
-                                        <pre><code><?php echo esc_html( $finding['ai_suggestion']['suggestion'] ); ?></code></pre>
-                                    </td>
-                                    <td>
-                                        <form method="post" action="">
-                                            <?php wp_nonce_field( 'ai_wp_genius_apply_fix_' . md5( $finding['file'] . $finding['line'] ), 'ai_wp_genius_apply_fix_nonce' ); ?>
-                                            <input type="hidden" name="file_path" value="<?php echo esc_attr( $finding['file'] ); ?>" />
-                                            <input type="hidden" name="line_number" value="<?php echo esc_attr( $finding['line'] ); ?>" />
-                                            <input type="hidden" name="suggestion" value="<?php echo esc_attr( $finding['ai_suggestion']['suggestion'] ); ?>" />
-                                            <?php submit_button( __( 'Apply Fix', 'ai-wordpress-genius' ), 'small', 'submit_apply_fix', false ); ?>
-                                        </form>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                <?php else : ?>
-                    <div class="notice notice-success is-dismissible"><p><?php _e( 'No issues found!', 'ai-wordpress-genius' ); ?></p></div>
-                <?php endif; ?>
-            </div>
-            <hr>
-            <?php
-            delete_transient( 'ai_wp_genius_scan_results' ); // Delete after displaying
-        endif;
-        ?>
-
-        <h4><?php _e( 'Scan a Plugin', 'ai-wordpress-genius' ); ?></h4>
-        <form method="post" action="">
-            <?php wp_nonce_field( 'ai_wp_genius_run_scan_plugin', 'ai_wp_genius_scan_plugin_nonce' ); ?>
-            <input type="hidden" name="scan_type" value="plugin" />
-            <table class="form-table">
-                <tr valign="top">
-                    <th scope="row"><label for="plugin_to_scan"><?php _e( 'Select Plugin', 'ai-wordpress-genius' ); ?></label></th>
-                    <td>
-                        <select name="scan_target" id="plugin_to_scan" style="min-width: 300px;">
-                            <?php
-                            $plugins = get_plugins();
-                            foreach ( $plugins as $plugin_file => $plugin_data ) {
-                                if ( strpos( $plugin_file, 'ai-wordpress-genius.php' ) !== false ) continue; // Don't allow scanning self
-                                echo '<option value="' . esc_attr( $plugin_file ) . '">' . esc_html( $plugin_data['Name'] ) . '</option>';
-                            }
-                            ?>
-                        </select>
-                    </td>
-                </tr>
-            </table>
-            <?php submit_button( __( 'Scan Plugin', 'ai-wordpress-genius' ), 'secondary', 'submit_scan_plugin' ); ?>
-        </form>
-
-        <h4><?php _e( 'Scan a Theme', 'ai-wordpress-genius' ); ?></h4>
-        <form method="post" action="">
-            <?php wp_nonce_field( 'ai_wp_genius_run_scan_theme', 'ai_wp_genius_scan_theme_nonce' ); ?>
-            <input type="hidden" name="scan_type" value="theme" />
-            <table class="form-table">
-                <tr valign="top">
-                    <th scope="row"><label for="theme_to_scan"><?php _e( 'Select Theme', 'ai-wordpress-genius' ); ?></label></th>
-                    <td>
-                        <select name="scan_target" id="theme_to_scan" style="min-width: 300px;">
-                            <?php
-                            $themes = wp_get_themes();
-                            foreach ( $themes as $theme ) {
-                                echo '<option value="' . esc_attr( $theme->get_stylesheet() ) . '">' . esc_html( $theme->get( 'Name' ) ) . '</option>';
-                            }
-                            ?>
-                        </select>
-                    </td>
-                </tr>
-            </table>
-            <?php submit_button( __( 'Scan Theme', 'ai-wordpress-genius' ), 'secondary', 'submit_scan_theme' ); ?>
-        </form>
+		<form method="post" action="">
+			<?php wp_nonce_field( 'ai_wp_genius_agent_find_bug', 'ai_wp_genius_agent_find_bug_nonce' ); ?>
+			<table class="form-table">
+				<tr valign="top">
+					<th scope="row"><label for="bug_target_slug"><?php _e( 'Suspected Plugin/Theme', 'ai-wordpress-genius' ); ?></label></th>
+					<td>
+						<select name="bug_target_slug" id="bug_target_slug" style="min-width: 300px;">
+							<optgroup label="<?php esc_attr_e( 'Plugins', 'ai-wordpress-genius' ); ?>">
+							<?php
+							$plugins = get_plugins();
+							foreach ( $plugins as $plugin_file => $plugin_data ) {
+								if ( strpos( $plugin_file, 'ai-wordpress-genius.php' ) !== false ) continue;
+								echo '<option value="plugin:' . esc_attr( $plugin_file ) . '">' . esc_html( $plugin_data['Name'] ) . '</option>';
+							}
+							?>
+							</optgroup>
+							<optgroup label="<?php esc_attr_e( 'Themes', 'ai-wordpress-genius' ); ?>">
+							<?php
+							$themes = wp_get_themes();
+							foreach ( $themes as $theme ) {
+								echo '<option value="theme:' . esc_attr( $theme->get_stylesheet() ) . '">' . esc_html( $theme->get( 'Name' ) ) . '</option>';
+							}
+							?>
+							</optgroup>
+						</select>
+						<p class="description"><?php _e( 'Select the plugin or theme you believe is causing the issue.', 'ai-wordpress-genius' ); ?></p>
+					</td>
+				</tr>
+				<tr valign="top">
+					<th scope="row"><label for="bug_description"><?php _e( 'Describe the Bug', 'ai-wordpress-genius' ); ?></label></th>
+					<td>
+						<textarea name="bug_description" id="bug_description" rows="5" class="large-text" required></textarea>
+						<p class="description"><?php _e( 'e.g., "When I submit the contact form, I get a fatal error." or "The images in the gallery are not showing up since the last update."', 'ai-wordpress-genius' ); ?></p>
+					</td>
+				</tr>
+			</table>
+			<?php submit_button( __( 'Let Agent Diagnose & Fix', 'ai-wordpress-genius' ), 'primary', 'submit_agent_find_bug' ); ?>
+		</form>
 
 		<hr>
 

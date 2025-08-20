@@ -25,10 +25,16 @@ The plugin will not be able to perform any AI-related tasks without a valid API 
 - **What it does:** Generates a functional WordPress plugin from a description of what it should do.
 - **How to use:** On the dashboard, give your new plugin a name and describe its functionality (e.g., "A simple plugin that creates a shortcode [year] to display the current year"). Click "Generate Plugin," and the AI will create a new plugin and add it to your `Plugins` page.
 
-### 4. AI Bug Finder
-- **What it does:** Scans your installed plugins and themes for common issues and uses AI to provide detailed explanations and suggestions.
-- **How to use:** On the dashboard, select a plugin or theme to scan and click the "Scan" button. The results will be displayed on the same page.
-- **One-Click Fix:** For each issue found, the AI will provide a suggested fix. You can apply this fix directly by clicking the "Apply Fix" button.
+### 4. Agentic Bug Finder (Beta)
+- **What it does:** Acts as an AI agent to diagnose and propose fixes for bugs in your plugins and themes.
+- **How it works:**
+    1.  On the dashboard, describe the bug you are experiencing in detail (e.g., "I get a 500 error when I try to save a new post").
+    2.  Select the plugin or theme you suspect is causing the problem.
+    3.  Click "Let Agent Diagnose & Fix."
+    4.  **Diagnosis (AI Call #1):** The agent analyzes your report and your site's environment to create a plan, identifying the most likely files to inspect.
+    5.  **Analysis & Fix (AI Call #2):** The agent then reads the content of the identified files and sends them to the AI, asking for a code fix.
+    6.  **Approval:** If the AI proposes a fix, you will be shown a "diff" view comparing the original code with the AI's proposed changes. **You must review these changes carefully.**
+    7.  If you approve, click "Approve & Apply Changes" to overwrite the file.
 
 ### 5. AI Code Editor (Beta)
 - **What it does:** Modifies the code of your existing plugins and themes based on your instructions. This is a powerful, experimental feature.

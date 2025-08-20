@@ -6,129 +6,58 @@ if ( ! defined( 'WPINC' ) ) {
 }
 
 /**
- * Generates the prompt for the AI Bug Finder analysis.
+ * Generates the prompt for the AI diagnosis.
  *
- * @param string $issue_description The description of the issue found.
- * @param string $code_context The code snippet surrounding the issue.
+ * @param string $bug_description The user's description of the bug.
  * @return string The generated prompt.
  */
-function ai_wp_genius_generate_bug_analysis_prompt( $issue_description, $code_context ) {
+function ai_wp_genius_generate_diagnosis_prompt( $bug_description ) {
+	// Get environment data to provide context to the AI.
+	if ( ! function_exists( 'wp_get_environment_info' ) ) {
+		require_once ABSPATH . 'wp-admin/includes/misc.php';
+	}
+	$env_info = wp_get_environment_info();
+	// We only need a subset of the environment info to avoid making the prompt too large.
+	$context = [
+		'wordpress' => $env_info['wp'],
+		'server'    => $env_info['server'],
+		'theme'     => $env_info['theme'],
+		'plugins'   => array_keys( $env_info['plugins']['active'] ),
+	];
+
 	return sprintf(
-		"You are an expert WordPress developer and code reviewer. Your task is to analyze a piece of PHP code from a WordPress plugin or theme that contains a potential issue, explain the problem, and suggest a fix.
+		"You are an expert WordPress developer and diagnostician. Your task is to analyze a user's bug report and a snapshot of their WordPress environment, then determine which PHP files are the most likely source of the problem.
 
-The issue found is: \"%s\"
+The user's bug report is: \"%s\"
 
-Here is the relevant code snippet. The line with the issue is marked with `// <<< ISSUE HERE`:
-```php
+Here is the environment information:
 %s
-```
 
-You MUST respond with ONLY a valid JSON object and nothing else. Do not include ```json markdown delimiters or any explanatory text before or after the JSON. The JSON object must have the following structure:
+Based on the user's report and the environment, identify the most relevant files to inspect for the bug.
+
+You MUST respond with ONLY a valid JSON object and nothing else. Do not include any explanatory text before or after the JSON. The JSON object must contain a single key, \"files\", which is an array of strings. Each string should be a full path to a file within the WordPress installation that needs to be inspected.
+
+Example response:
 {
-  \"explanation\": \"A clear, concise explanation of why this is a problem in the context of WordPress development.\",
-  \"suggestion\": \"A specific code replacement or modification to fix the issue.\"
+  \"files\": [
+    \"/var/www/html/wp-content/plugins/some-plugin/includes/class-form-handler.php\",
+    \"/var/www/html/wp-content/themes/some-theme/functions.php\"
+  ]
 }",
-		$issue_description,
-		$code_context
+		$bug_description,
+		json_encode( $context, JSON_PRETTY_PRINT )
 	);
 }
 
 /**
- * Recursively scans a directory for issues in PHP files.
- *
- * @param string $dir_path The path to the directory to scan.
- * @return array An array of findings.
+ * Handles the bug finder agent submission.
  */
-function ai_wp_genius_scan_directory( $dir_path ) {
-	$findings = [];
-	try {
-		$iterator = new RecursiveIteratorIterator( new RecursiveDirectoryIterator( $dir_path, RecursiveDirectoryIterator::SKIP_DOTS ) );
-
-		foreach ( $iterator as $file ) {
-			if ( $file->isDir() || $file->getExtension() !== 'php' ) {
-				continue;
-			}
-
-			$lines = file( $file->getPathname() );
-			if ( $lines === false ) {
-				continue;
-			}
-
-			$rules = [
-				'get_bloginfo(\'siteurl\')' => 'Deprecated function `get_bloginfo(\'siteurl\')` found.',
-				'add_contextual_help' => 'Deprecated function `add_contextual_help()` found.',
-				'wp_oembed_get' => 'Deprecated function `wp_oembed_get()` found.',
-				'/__\(\s*\'[^\']*\'\s*\)/' => 'Missing text domain in localization function.',
-				'/_e\(\s*\'[^\']*\'\s*\)/' => 'Missing text domain in localization function.',
-			];
-
-			foreach ( $lines as $line_num => $line ) {
-				foreach ( $rules as $pattern => $issue_description ) {
-					$is_regex = ( substr( $pattern, 0, 1 ) === '/' );
-					$match_found = $is_regex ? preg_match( $pattern, $line ) : strpos( $line, $pattern ) !== false;
-
-					if ( $match_found ) {
-						$context_start = max( 0, $line_num - 2 );
-						$context_end = min( count( $lines ) - 1, $line_num + 2 );
-						$code_context = '';
-						for ( $i = $context_start; $i <= $context_end; $i++ ) {
-							$code_context .= rtrim( $lines[$i] );
-							if ( $i === $line_num ) {
-								$code_context .= ' // <<< ISSUE HERE';
-							}
-							$code_context .= "\n";
-						}
-
-						$prompt = ai_wp_genius_generate_bug_analysis_prompt( $issue_description, $code_context );
-						$ai_response_json = ai_wp_genius_get_ai_response( $prompt );
-
-						$ai_suggestion = [
-							'explanation' => 'AI analysis failed or returned an invalid format.',
-							'suggestion'  => 'Please review the code manually.',
-						];
-
-						if ( ! is_wp_error( $ai_response_json ) ) {
-							$decoded_response = json_decode( $ai_response_json, true );
-							if ( json_last_error() === JSON_ERROR_NONE && isset( $decoded_response['explanation'] ) && isset( $decoded_response['suggestion'] ) ) {
-								$ai_suggestion = $decoded_response;
-							}
-						}
-
-						$findings[] = [
-							'file'        => str_replace( WP_CONTENT_DIR, '', $file->getPathname() ),
-							'line'        => $line_num + 1,
-							'issue'       => $issue_description,
-							'ai_suggestion' => $ai_suggestion,
-						];
-
-						// Stop checking other rules for this line to avoid duplicate findings on the same line
-						break;
-					}
-				}
-			}
-		}
-	} catch ( Exception $e ) {
-		// Could log the error if a logging system was in place.
-	}
-
-	return $findings;
-}
-
-
-/**
- * Handles the bug finder scan submission.
- */
-function ai_wp_genius_handle_bug_finder_scan() {
-	if ( ! isset( $_POST['submit_scan_plugin'] ) && ! isset( $_POST['submit_scan_theme'] ) ) {
+function ai_wp_genius_handle_agent_bug_finder() {
+	if ( ! isset( $_POST['submit_agent_find_bug'] ) ) {
 		return;
 	}
 
-	$scan_type = sanitize_text_field( $_POST['scan_type'] );
-	$target_slug = sanitize_text_field( $_POST['scan_target'] );
-	$nonce_action = 'ai_wp_genius_run_scan_' . $scan_type;
-	$nonce_name = 'ai_wp_genius_scan_' . $scan_type . '_nonce';
-
-	if ( ! isset( $_POST[$nonce_name] ) || ! wp_verify_nonce( $_POST[$nonce_name], $nonce_action ) ) {
+	if ( ! isset( $_POST['ai_wp_genius_agent_find_bug_nonce'] ) || ! wp_verify_nonce( $_POST['ai_wp_genius_agent_find_bug_nonce'], 'ai_wp_genius_agent_find_bug' ) ) {
 		wp_die( __( 'Security check failed.', 'ai-wordpress-genius' ) );
 	}
 
@@ -136,100 +65,140 @@ function ai_wp_genius_handle_bug_finder_scan() {
 		wp_die( __( 'You do not have permission to perform this action.', 'ai-wordpress-genius' ) );
 	}
 
-	$target_path = '';
-	$target_name = '';
+	$bug_description = sanitize_textarea_field( $_POST['bug_description'] );
+	$prompt = ai_wp_genius_generate_diagnosis_prompt( $bug_description );
+	$ai_response_json = ai_wp_genius_get_ai_response( $prompt );
 
-	if ( $scan_type === 'plugin' ) {
-		$plugin_data = get_plugin_data( WP_PLUGIN_DIR . '/' . $target_slug );
-		$target_name = $plugin_data['Name'];
-		$target_path = WP_PLUGIN_DIR . '/' . dirname( $target_slug );
-	} elseif ( $scan_type === 'theme' ) {
-		$theme = wp_get_theme( $target_slug );
-		$target_name = $theme->get( 'Name' );
-		$target_path = $theme->get_stylesheet_directory();
-	}
-
-	if ( ! is_dir( $target_path ) ) {
+	if ( is_wp_error( $ai_response_json ) ) {
+		add_action( 'admin_notices', function () use ( $ai_response_json ) {
+			echo '<div class="notice notice-error is-dismissible"><p><strong>' . __( 'AI Diagnosis Error:', 'ai-wordpress-genius' ) . '</strong> ' . esc_html( $ai_response_json->get_error_message() ) . '</p></div>';
+		} );
 		return;
 	}
 
-	$findings = ai_wp_genius_scan_directory( $target_path );
+	$decoded_response = json_decode( $ai_response_json, true );
+	if ( json_last_error() !== JSON_ERROR_NONE || ! isset( $decoded_response['files'] ) || ! is_array( $decoded_response['files'] ) ) {
+		add_action( 'admin_notices', function () {
+			echo '<div class="notice notice-error is-dismissible"><p>' . __( 'The AI returned an invalid or unexpected format for the file list. Please try again.', 'ai-wordpress-genius' ) . '</p></div>';
+		} );
+		return;
+	}
 
-	$results = [
-		'name'     => $target_name,
-		'findings' => $findings,
+	$files_to_inspect = $decoded_response['files'];
+
+	if ( empty( $files_to_inspect ) ) {
+		add_action( 'admin_notices', function () {
+			echo '<div class="notice notice-warning is-dismissible"><p>' . __( 'The AI diagnosed the issue but did not identify any specific files to inspect. The problem might be related to configuration or external factors.', 'ai-wordpress-genius' ) . '</p></div>';
+		} );
+		return;
+	}
+
+	// Step 2: Analyze the files and propose a fix for the first one that needs changes.
+	$proposed_fix = ai_wp_genius_analyze_and_fix_files( $files_to_inspect, $bug_description );
+
+	if ( is_wp_error( $proposed_fix ) ) {
+		add_action( 'admin_notices', function () use ( $proposed_fix ) {
+			echo '<div class="notice notice-error is-dismissible"><p><strong>' . __( 'AI Analysis Error:', 'ai-wordpress-genius' ) . '</strong> ' . esc_html( $proposed_fix->get_error_message() ) . '</p></div>';
+		} );
+		return;
+	}
+
+	if ( ! $proposed_fix ) {
+		add_action( 'admin_notices', function () {
+			echo '<div class="notice notice-info is-dismissible"><p>' . __( 'The AI analyzed the suspected files but did not find any code to modify. The issue may be elsewhere, or it may not be a code-related problem.', 'ai-wordpress-genius' ) . '</p></div>';
+		} );
+		return;
+	}
+
+	// Step 3: Hand off the proposed fix to the approval workflow.
+	$key = md5( uniqid( rand(), true ) );
+	$modification_request = [
+		'key'              => $key,
+		'full_path'        => $proposed_fix['full_path'],
+		'relative_path'    => str_replace( WP_CONTENT_DIR, '', $proposed_fix['full_path'] ),
+		'original_content' => $proposed_fix['original_content'],
+		'new_content'      => $proposed_fix['new_content'],
 	];
+	set_transient( 'ai_wp_genius_modification_request', $modification_request, HOUR_IN_SECONDS );
 
-	set_transient( 'ai_wp_genius_scan_results', $results, HOUR_IN_SECONDS );
-
-	$redirect_url = admin_url( 'admin.php?page=ai-wordpress-genius' );
-	wp_safe_redirect( $redirect_url );
+	wp_safe_redirect( admin_url( 'admin.php?page=ai-wordpress-genius' ) );
 	exit;
 }
-add_action( 'admin_init', 'ai_wp_genius_handle_bug_finder_scan' );
+add_action( 'admin_init', 'ai_wp_genius_handle_agent_bug_finder' );
 
 /**
- * Handles the submission for the one-click fix.
+ * Generates the prompt for the AI to fix a file.
+ *
+ * @param string $bug_description The user's original bug description.
+ * @param string $file_path The full path to the file being analyzed.
+ * @param string $original_content The original content of the file.
+ * @return string The generated prompt.
  */
-function ai_wp_genius_handle_apply_fix() {
-	if ( ! isset( $_POST['submit_apply_fix'] ) ) {
-		return;
-	}
+function ai_wp_genius_generate_fix_prompt( $bug_description, $file_path, $original_content ) {
+	return sprintf(
+		"You are an expert WordPress developer and debugger. Your task is to analyze a PHP file that is suspected of causing a bug and rewrite it with a fix.
 
-	$file_path = sanitize_text_field( $_POST['file_path'] );
-	$line_number = absint( $_POST['line_number'] );
-	// The suggestion is code, so we need to be careful with sanitization.
-	// We'll rely on the fact that it comes from our AI and is displayed to the user for approval.
-	// `wp_unslash` is important because WordPress will add slashes to POST data.
-	$suggestion = wp_unslash( $_POST['suggestion'] );
+The original bug report from the user was: \"%s\"
 
-	if ( ! isset( $_POST['ai_wp_genius_apply_fix_nonce'] ) || ! wp_verify_nonce( $_POST['ai_wp_genius_apply_fix_nonce'], 'ai_wp_genius_apply_fix_' . md5( $file_path . $line_number ) ) ) {
-		wp_die( __( 'Security check failed.', 'ai-wordpress-genius' ) );
-	}
+Here is the entire original content of the PHP file (`%s`):
+```php
+%s
+```
 
-	if ( ! current_user_can( 'edit_plugins' ) && ! current_user_can( 'edit_themes' ) ) {
-		wp_die( __( 'You do not have permission to edit files.', 'ai-wordpress-genius' ) );
-	}
+Please analyze the file in the context of the user's bug report and rewrite the entire file with the necessary corrections.
 
-	$full_path = WP_CONTENT_DIR . $file_path;
+You MUST respond with ONLY the complete, modified content of the PHP file. Do not add any explanations, comments, or markdown formatting like ```php. Your response should be the raw code of the new file from start to finish. If you determine that no changes are needed in this specific file, you MUST return the original, unmodified file content.",
+		$bug_description,
+		$file_path,
+		$original_content
+	);
+}
 
-	if ( ! file_exists( $full_path ) ) {
-		add_action( 'admin_notices', function() {
-			echo '<div class="notice notice-error is-dismissible"><p>' . __( 'File to modify not found.', 'ai-wordpress-genius' ) . '</p></div>';
-		});
-		return;
-	}
-
-	$lines = file( $full_path );
-	if ( $lines === false || ! isset( $lines[ $line_number - 1 ] ) ) {
-		add_action( 'admin_notices', function() {
-			echo '<div class="notice notice-error is-dismissible"><p>' . __( 'Could not read file or line number is invalid.', 'ai-wordpress-genius' ) . '</p></div>';
-		});
-		return;
-	}
-
-	// Preserve indentation
-	$original_line = $lines[ $line_number - 1 ];
-	preg_match( '/^(\s*)/', $original_line, $matches );
-	$indentation = $matches[1] ?? '';
-
-	$lines[ $line_number - 1 ] = $indentation . $suggestion . "\n";
-	$new_content = implode( '', $lines );
-
+/**
+ * Analyzes a list of files and returns a proposed fix for the first one that needs changes.
+ *
+ * @param array $files_to_inspect An array of full file paths.
+ * @param string $bug_description The user's original bug description.
+ * @return array|WP_Error|false An array with fix data, a WP_Error on failure, or false if no fix is needed.
+ */
+function ai_wp_genius_analyze_and_fix_files( $files_to_inspect, $bug_description ) {
 	global $wp_filesystem;
 	if ( empty( $wp_filesystem ) ) {
 		require_once( ABSPATH . '/wp-admin/includes/file.php' );
 		WP_Filesystem();
 	}
 
-	if ( $wp_filesystem->put_contents( $full_path, $new_content, FS_CHMOD_FILE ) ) {
-		add_action( 'admin_notices', function() {
-			echo '<div class="notice notice-success is-dismissible"><p>' . __( 'File successfully updated!', 'ai-wordpress-genius' ) . '</p></div>';
-		});
-	} else {
-		add_action( 'admin_notices', function() {
-			echo '<div class="notice notice-error is-dismissible"><p>' . __( 'Could not write to file. Please check file permissions.', 'ai-wordpress-genius' ) . '</p></div>';
-		});
+	foreach ( $files_to_inspect as $file_path ) {
+		// Basic security check: ensure the file is within the wp-content directory.
+		if ( strpos( realpath( $file_path ), realpath( WP_CONTENT_DIR ) ) !== 0 ) {
+			continue; // Skip files outside of wp-content
+		}
+
+		if ( ! file_exists( $file_path ) ) {
+			continue; // Skip files that don't exist
+		}
+
+		$original_content = $wp_filesystem->get_contents( $file_path );
+		if ( $original_content === false ) {
+			continue; // Skip files that can't be read
+		}
+
+		$prompt = ai_wp_genius_generate_fix_prompt( $bug_description, $file_path, $original_content );
+		$new_content = ai_wp_genius_get_ai_response( $prompt );
+
+		if ( is_wp_error( $new_content ) ) {
+			return $new_content; // Propagate the error up
+		}
+
+		// Check if the AI actually made a change (trimming whitespace for comparison)
+		if ( trim( $original_content ) !== trim( $new_content ) ) {
+			return [
+				'full_path'        => $file_path,
+				'original_content' => $original_content,
+				'new_content'      => $new_content,
+			];
+		}
 	}
+
+	return false; // No changes were proposed for any of the files
 }
-add_action( 'admin_init', 'ai_wp_genius_handle_apply_fix' );
