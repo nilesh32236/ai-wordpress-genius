@@ -79,11 +79,11 @@ function ai_wp_genius_handle_theme_creation() {
 		return;
 	}
 
-	$ai_response = json_decode( $ai_response_json, true );
+	$ai_response = ai_wp_genius_clean_and_decode_json( $ai_response_json );
 
 	if ( ! $ai_response || ! isset($ai_response['settings']) || ! isset($ai_response['templates']['index']) ) {
 		add_action( 'admin_notices', function () {
-			echo '<div class="notice notice-error is-dismissible"><p>' . __( 'The AI returned an invalid or incomplete structure for the theme. Please try again with a different prompt.', 'ai-wordpress-genius' ) . '</p></div>';
+			echo '<div class="notice notice-error is-dismissible"><p>' . __( 'The AI returned an invalid or incomplete JSON structure for the theme. Please try again with a different prompt.', 'ai-wordpress-genius' ) . '</p></div>';
 		} );
 		return;
 	}

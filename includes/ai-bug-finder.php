@@ -76,10 +76,10 @@ function ai_wp_genius_handle_agent_bug_finder() {
 		return;
 	}
 
-	$decoded_response = json_decode( $ai_response_json, true );
-	if ( json_last_error() !== JSON_ERROR_NONE || ! isset( $decoded_response['files'] ) || ! is_array( $decoded_response['files'] ) ) {
+	$decoded_response = ai_wp_genius_clean_and_decode_json( $ai_response_json );
+	if ( ! $decoded_response || ! isset( $decoded_response['files'] ) || ! is_array( $decoded_response['files'] ) ) {
 		add_action( 'admin_notices', function () {
-			echo '<div class="notice notice-error is-dismissible"><p>' . __( 'The AI returned an invalid or unexpected format for the file list. Please try again.', 'ai-wordpress-genius' ) . '</p></div>';
+			echo '<div class="notice notice-error is-dismissible"><p>' . __( 'The AI returned an invalid or unexpected JSON format for the file list. Please try again.', 'ai-wordpress-genius' ) . '</p></div>';
 		} );
 		return;
 	}
@@ -196,9 +196,9 @@ function ai_wp_genius_analyze_and_fix_files( $files_to_inspect, $bug_description
 			return $ai_response_json; // Propagate the error up
 		}
 
-		$decoded_response = json_decode( $ai_response_json, true );
+		$decoded_response = ai_wp_genius_clean_and_decode_json( $ai_response_json );
 
-		if ( json_last_error() !== JSON_ERROR_NONE || ! isset( $decoded_response['code'] ) || ! isset( $decoded_response['explanation'] ) ) {
+		if ( ! $decoded_response || ! isset( $decoded_response['code'] ) || ! isset( $decoded_response['explanation'] ) ) {
 			// If the AI fails to return valid JSON, we can't proceed with this file.
 			// We could return an error here, but it's better to just skip to the next file.
 			continue;

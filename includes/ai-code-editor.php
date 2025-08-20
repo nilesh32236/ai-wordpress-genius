@@ -82,10 +82,10 @@ function ai_wp_genius_handle_code_modification() {
 		return;
 	}
 
-	$decoded_response = json_decode( $ai_response_json, true );
-	if ( json_last_error() !== JSON_ERROR_NONE || ! isset( $decoded_response['code'] ) || ! isset( $decoded_response['explanation'] ) ) {
+	$decoded_response = ai_wp_genius_clean_and_decode_json( $ai_response_json );
+	if ( ! $decoded_response || ! isset( $decoded_response['code'] ) || ! isset( $decoded_response['explanation'] ) ) {
 		add_action( 'admin_notices', function () {
-			echo '<div class="notice notice-error is-dismissible"><p>' . __( 'The AI returned an invalid or unexpected format. Please try again.', 'ai-wordpress-genius' ) . '</p></div>';
+			echo '<div class="notice notice-error is-dismissible"><p>' . __( 'The AI returned an invalid or unexpected JSON format. Please try again.', 'ai-wordpress-genius' ) . '</p></div>';
 		} );
 		return;
 	}
