@@ -17,6 +17,29 @@ if ( ! defined( 'WPINC' ) ) {
 	die;
 }
 
+/**
+ * The code that runs during plugin activation.
+ * This action is scheduled to run only once, when the plugin is activated.
+ */
+function ai_wp_genius_activate_plugin() {
+	global $wpdb;
+	$table_name = $wpdb->prefix . 'ai_genius_session_history';
+	$charset_collate = $wpdb->get_charset_collate();
+
+	$sql = "CREATE TABLE $table_name (
+		id mediumint(9) NOT NULL AUTO_INCREMENT,
+		session_id varchar(255) NOT NULL,
+		role varchar(10) NOT NULL,
+		content longtext NOT NULL,
+		created_at datetime DEFAULT '0000-00-00 00:00:00' NOT NULL,
+		PRIMARY KEY  (id)
+	) $charset_collate;";
+
+	require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+	dbDelta( $sql );
+}
+register_activation_hook( __FILE__, 'ai_wp_genius_activate_plugin' );
+
 // Define plugin constants
 define( 'AI_WP_GENIUS_VERSION', '1.0.0' );
 define( 'AI_WP_GENIUS_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
@@ -48,3 +71,6 @@ require_once AI_WP_GENIUS_PLUGIN_DIR . 'includes/ai-code-editor.php';
 
 // Include the formatting utility
 require_once AI_WP_GENIUS_PLUGIN_DIR . 'includes/formatting.php';
+
+// Include the session manager
+require_once AI_WP_GENIUS_PLUGIN_DIR . 'includes/session-manager.php';

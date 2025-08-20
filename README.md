@@ -44,6 +44,7 @@ The plugin will not be able to perform any AI-related tasks without a valid API 
     3.  You will be shown a "diff" view comparing the original code with the AI's proposed changes.
     4.  **You must review these changes carefully.**
     5.  If you approve, click "Approve & Apply Changes" to overwrite the file.
+- **Conversational Refinement:** After the AI proposes a change, you can give it follow-up instructions. Use the new text box to ask for further modifications (e.g., "Good, now change the function name") to refine the code until it's perfect.
 - **Limitation:** In this version, this feature will only modify the main plugin file for plugins or the `functions.php` file for themes.
 
 ## Installation

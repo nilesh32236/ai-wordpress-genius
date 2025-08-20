@@ -193,11 +193,31 @@ function ai_wp_genius_render_dashboard_page() {
 			</div>
 
 			<?php echo $diff_table; ?>
+
+			<div style="display: flex; gap: 10px; align-items: center; margin-top: 20px;">
+				<form method="post" action="" style="margin: 0;">
+					<?php wp_nonce_field( 'ai_wp_genius_approve_changes', 'ai_wp_genius_approve_changes_nonce' ); ?>
+					<input type="hidden" name="modification_key" value="<?php echo esc_attr( $modification_request['key'] ); ?>" />
+					<?php submit_button( __( 'Approve & Apply Changes', 'ai-wordpress-genius' ), 'primary', 'submit_approve_changes', false ); ?>
+				</form>
+				<a href="<?php echo esc_url( add_query_arg( 'ai_action', 'cancel_modification', admin_url( 'admin.php?page=ai-wordpress-genius' ) ) ); ?>" class="button button-secondary"><?php _e( 'Cancel', 'ai-wordpress-genius' ); ?></a>
+			</div>
+
+			<hr>
+			<h4><?php _e( 'Not quite right? Give the AI a follow-up instruction.', 'ai-wordpress-genius' ); ?></h4>
 			<form method="post" action="">
-				<?php wp_nonce_field( 'ai_wp_genius_approve_changes', 'ai_wp_genius_approve_changes_nonce' ); ?>
-				<input type="hidden" name="modification_key" value="<?php echo esc_attr( $modification_request['key'] ); ?>" />
-				<?php submit_button( __( 'Approve & Apply Changes', 'ai-wordpress-genius' ), 'primary', 'submit_approve_changes' ); ?>
-				<a href="<?php echo esc_url( admin_url( 'admin.php?page=ai-wordpress-genius' ) ); ?>" class="button button-secondary"><?php _e( 'Cancel', 'ai-wordpress-genius' ); ?></a>
+				<?php wp_nonce_field( 'ai_wp_genius_follow_up', 'ai_wp_genius_follow_up_nonce' ); ?>
+				<input type="hidden" name="session_id" value="<?php echo esc_attr( $modification_request['session_id'] ); ?>" />
+				<table class="form-table">
+					<tr valign="top">
+						<th scope="row"><label for="follow_up_instruction"><?php _e( 'Follow-up Instruction', 'ai-wordpress-genius' ); ?></label></th>
+						<td>
+							<textarea name="follow_up_instruction" id="follow_up_instruction" rows="3" class="large-text" required></textarea>
+							<p class="description"><?php _e( 'e.g., "That is good, but also add PHPdoc comments to the new function." or "Change the variable name from `$foo` to `$bar`."', 'ai-wordpress-genius' ); ?></p>
+						</td>
+					</tr>
+				</table>
+				<?php submit_button( __( 'Send Follow-up', 'ai-wordpress-genius' ), 'secondary', 'submit_follow_up' ); ?>
 			</form>
 		<?php
 		else :

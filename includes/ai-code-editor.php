@@ -6,6 +6,18 @@ if ( ! defined( 'WPINC' ) ) {
 }
 
 /**
+ * Handles the cancellation of a modification request, cleaning up the transient.
+ */
+function ai_wp_genius_handle_cancel_modification() {
+    if ( isset( $_GET['page'] ) && $_GET['page'] === 'ai-wordpress-genius' && isset( $_GET['ai_action'] ) && $_GET['ai_action'] === 'cancel_modification' ) {
+        delete_transient( 'ai_wp_genius_modification_request' );
+        wp_safe_redirect( admin_url( 'admin.php?page=ai-wordpress-genius' ) );
+        exit;
+    }
+}
+add_action( 'admin_init', 'ai_wp_genius_handle_cancel_modification' );
+
+/**
  * Generates the prompt for the AI code editor.
  *
  * @param string $instruction The user's instruction.
@@ -74,8 +86,11 @@ function ai_wp_genius_handle_code_modification() {
 	}
 
 	$original_content = $wp_filesystem->get_contents( $target_file );
+
+	// Start a new conversation session
+	$session_id = ai_wp_genius_create_new_session_id();
 	$prompt = ai_wp_genius_generate_code_modification_prompt( $instruction, $original_content );
-	$ai_response_json = ai_wp_genius_get_ai_response( $prompt );
+	$ai_response_json = ai_wp_genius_get_ai_response( $prompt, $session_id );
 
 	if ( is_wp_error( $ai_response_json ) ) {
 		add_action( 'admin_notices', function() use ( $ai_response_json ) { echo '<div class="notice notice-error is-dismissible"><p><strong>' . __( 'AI Service Error:', 'ai-wordpress-genius' ) . '</strong> ' . esc_html( $ai_response_json->get_error_message() ) . '</p></div>'; });
@@ -94,6 +109,7 @@ function ai_wp_genius_handle_code_modification() {
 	$key = md5( uniqid( rand(), true ) );
 	$modification_request = [
 		'key'              => $key,
+		'session_id'       => $session_id,
 		'full_path'        => $target_file,
 		'relative_path'    => str_replace( WP_CONTENT_DIR, '', $target_file ),
 		'original_content' => $original_content,
@@ -145,3 +161,59 @@ function ai_wp_genius_handle_approve_changes() {
 	delete_transient( 'ai_wp_genius_modification_request' );
 }
 add_action( 'admin_init', 'ai_wp_genius_handle_approve_changes' );
+
+/**
+ * Handles follow-up instructions for an ongoing code modification session.
+ */
+function ai_wp_genius_handle_follow_up() {
+	if ( ! isset( $_POST['submit_follow_up'] ) ) {
+		return;
+	}
+
+	if ( ! isset( $_POST['ai_wp_genius_follow_up_nonce'] ) || ! wp_verify_nonce( $_POST['ai_wp_genius_follow_up_nonce'], 'ai_wp_genius_follow_up' ) ) {
+		wp_die( __( 'Security check failed.', 'ai-wordpress-genius' ) );
+	}
+
+	if ( ! current_user_can( 'edit_plugins' ) && ! current_user_can( 'edit_themes' ) ) {
+		wp_die( __( 'You do not have permission to edit files.', 'ai-wordpress-genius' ) );
+	}
+
+	$session_id = sanitize_text_field( $_POST['session_id'] );
+	$instruction = sanitize_textarea_field( $_POST['follow_up_instruction'] );
+	$modification_request = get_transient( 'ai_wp_genius_modification_request' );
+
+	if ( ! $modification_request || $modification_request['session_id'] !== $session_id ) {
+		add_action( 'admin_notices', function() { echo '<div class="notice notice-error is-dismissible"><p>' . __( 'Modification session not found or expired. Please start again.', 'ai-wordpress-genius' ) . '</p></div>'; });
+		return;
+	}
+
+	// The "original" content for this turn is the AI's last output.
+	$current_code = $modification_request['new_content'];
+	$prompt = ai_wp_genius_generate_code_modification_prompt( $instruction, $current_code );
+	$ai_response_json = ai_wp_genius_get_ai_response( $prompt, $session_id );
+
+	if ( is_wp_error( $ai_response_json ) ) {
+		add_action( 'admin_notices', function() use ( $ai_response_json ) { echo '<div class="notice notice-error is-dismissible"><p><strong>' . __( 'AI Service Error:', 'ai-wordpress-genius' ) . '</strong> ' . esc_html( $ai_response_json->get_error_message() ) . '</p></div>'; });
+		// We need to re-save the transient so the user can try again.
+		set_transient( 'ai_wp_genius_modification_request', $modification_request, HOUR_IN_SECONDS );
+		wp_safe_redirect( admin_url( 'admin.php?page=ai-wordpress-genius' ) );
+		exit;
+	}
+
+	$decoded_response = ai_wp_genius_clean_and_decode_json( $ai_response_json );
+	if ( ! $decoded_response || ! isset( $decoded_response['code'] ) || ! isset( $decoded_response['explanation'] ) ) {
+		add_action( 'admin_notices', function () { echo '<div class="notice notice-error is-dismissible"><p>' . __( 'The AI returned an invalid or unexpected JSON format. Please try again.', 'ai-wordpress-genius' ) . '</p></div>';	} );
+		set_transient( 'ai_wp_genius_modification_request', $modification_request, HOUR_IN_SECONDS );
+		wp_safe_redirect( admin_url( 'admin.php?page=ai-wordpress-genius' ) );
+		exit;
+	}
+
+	// Update the transient with the new response, but keep the original content.
+	$modification_request['new_content'] = $decoded_response['code'];
+	$modification_request['explanation'] = $decoded_response['explanation'];
+	set_transient( 'ai_wp_genius_modification_request', $modification_request, HOUR_IN_SECONDS );
+
+	wp_safe_redirect( admin_url( 'admin.php?page=ai-wordpress-genius' ) );
+	exit;
+}
+add_action( 'admin_init', 'ai_wp_genius_handle_follow_up' );
