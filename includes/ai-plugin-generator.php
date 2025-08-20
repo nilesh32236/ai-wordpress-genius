@@ -6,41 +6,26 @@ if ( ! defined( 'WPINC' ) ) {
 }
 
 /**
- * Simulates a call to an AI model to get plugin code.
+ * Generates the prompt for the AI plugin generator.
  *
  * @param string $plugin_description The user's description of the plugin.
- * @return string A JSON string containing the core PHP code for the plugin.
+ * @return string The generated prompt.
  */
-function ai_wp_genius_get_simulated_plugin_ai_response( $plugin_description ) {
-	// In a real implementation, the AI would generate this code based on the description.
-	// For this simulation, we'll return a fixed shortcode implementation.
-	$response = [
-		'php_code_body' => "/**\n * The shortcode function.\n */\n" .
-		"function ai_wp_genius_generated_shortcode() {\n" .
-		"    // This is a simple example. A real AI could generate more complex code.\n" .
-		"    return 'Hello from your AI-generated plugin!';\n" .
-		"}\n\n" .
-		"/**\n * Register the shortcode.\n */\n" .
-		"function ai_wp_genius_register_generated_shortcode() {\n" .
-		"    add_shortcode('ai_shortcode', 'ai_wp_genius_generated_shortcode');\n" .
-		"}\n" .
-		"add_action('init', 'ai_wp_genius_register_generated_shortcode');",
-	];
+function ai_wp_genius_generate_plugin_prompt( $plugin_description ) {
+	return sprintf(
+		"You are an expert WordPress plugin developer. Your task is to generate the PHP code for a simple WordPress plugin based on a user's description.
 
-	// Let's add a different response for a "year" shortcode to make it more dynamic
-	if ( strpos( strtolower( $plugin_description ), 'year' ) !== false ) {
-		$response['php_code_body'] = "/**\n * The shortcode function for the current year.\n */\n" .
-		"function ai_wp_genius_year_shortcode() {\n" .
-		"    return date('Y');\n" .
-		"}\n\n" .
-		"/**\n * Register the shortcode.\n */\n" .
-		"function ai_wp_genius_register_year_shortcode() {\n" .
-		"    add_shortcode('year', 'ai_wp_genius_year_shortcode');\n" .
-		"}\n" .
-		"add_action('init', 'ai_wp_genius_register_year_shortcode');";
-	}
+You MUST respond with ONLY the raw PHP code for the plugin's functionality. Do NOT include the opening `<?php` tag, the plugin header comments, or any security checks like `if ( ! defined( 'WPINC' ) )`, as these will be added automatically. Do not include any explanatory text before or after the code.
 
-	return json_encode( $response );
+User's plugin description: \"%s\"
+
+Based on this description, generate only the necessary PHP code body. For example, if the user asks for \"a shortcode [year] that displays the current year\", you should respond with:
+function my_current_year_shortcode() {
+    return date('Y');
+}
+add_shortcode('year', 'my_current_year_shortcode');",
+		$plugin_description
+	);
 }
 
 /**
@@ -72,6 +57,25 @@ function ai_wp_genius_handle_plugin_creation() {
 		return;
 	}
 
+	// Generate the prompt and get the AI response.
+	$prompt = ai_wp_genius_generate_plugin_prompt( $plugin_description );
+	$php_code_body = ai_wp_genius_get_ai_response( $prompt );
+
+	// Handle errors from the AI service.
+	if ( is_wp_error( $php_code_body ) ) {
+		add_action( 'admin_notices', function () use ( $php_code_body ) {
+			echo '<div class="notice notice-error is-dismissible"><p><strong>' . __( 'AI Service Error:', 'ai-wordpress-genius' ) . '</strong> ' . esc_html( $php_code_body->get_error_message() ) . '</p></div>';
+		} );
+		return;
+	}
+
+	if ( empty( $php_code_body ) ) {
+		add_action( 'admin_notices', function () {
+			echo '<div class="notice notice-error is-dismissible"><p>' . __( 'The AI returned empty code. Please try again with a different prompt.', 'ai-wordpress-genius' ) . '</p></div>';
+		} );
+		return;
+	}
+
 	// Initialize WP_Filesystem
 	global $wp_filesystem;
 	if ( empty( $wp_filesystem ) ) {
@@ -83,19 +87,6 @@ function ai_wp_genius_handle_plugin_creation() {
 		add_action( 'admin_notices', function () {
 			echo '<div class="notice notice-error is-dismissible"><p>' . __( 'Could not create plugin directory.', 'ai-wordpress-genius' ) . '</p></div>';
 		} );
-		return;
-	}
-
-	// Get the AI-generated code
-	$ai_response_json = ai_wp_genius_get_simulated_plugin_ai_response( $plugin_description );
-	$ai_response = json_decode( $ai_response_json, true );
-	$php_code_body = $ai_response['php_code_body'] ?? '';
-
-	if ( empty( $php_code_body ) ) {
-		add_action( 'admin_notices', function () {
-			echo '<div class="notice notice-error is-dismissible"><p>' . __( 'AI failed to generate valid code.', 'ai-wordpress-genius' ) . '</p></div>';
-		} );
-		$wp_filesystem->rmdir( $plugin_dir_path, true ); // Clean up
 		return;
 	}
 
@@ -126,7 +117,6 @@ function ai_wp_genius_handle_plugin_creation() {
 		return;
 	}
 
-	// Success!
 	add_action( 'admin_notices', function () use ( $plugin_name ) {
 		$plugins_page_url = admin_url( 'plugins.php' );
 		echo '<div class="notice notice-success is-dismissible"><p>' . sprintf( __( 'Successfully created the "%s" plugin. You can now <a href="%s">activate it from the Plugins page</a>.', 'ai-wordpress-genius' ), esc_html( $plugin_name ), esc_url( $plugins_page_url ) ) . '</p></div>';

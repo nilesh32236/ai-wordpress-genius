@@ -11,12 +11,21 @@ if ( ! defined( 'WPINC' ) ) {
 function ai_wp_genius_register_admin_menu() {
 	add_menu_page(
 		__( 'AI Genius', 'ai-wordpress-genius' ), // Page Title
-		__( 'AI Genius', 'ai-wordpress-genius' ), // Menu Title
+		'AI Genius',                              // Menu Title
 		'manage_options',                         // Capability
 		'ai-wordpress-genius',                    // Menu Slug
 		'ai_wp_genius_render_dashboard_page',     // Callback function
 		'dashicons-superhero',                    // Icon
 		2                                         // Position
+	);
+
+	add_submenu_page(
+		'ai-wordpress-genius',                    // Parent slug
+		__( 'Settings', 'ai-wordpress-genius' ),  // Page title
+		__( 'Settings', 'ai-wordpress-genius' ),  // Menu title
+		'manage_options',                         // Capability
+		'ai-wordpress-genius-settings',           // Menu slug
+		'ai_wp_genius_render_settings_page'       // Callback function
 	);
 }
 add_action( 'admin_menu', 'ai_wp_genius_register_admin_menu' );
@@ -57,7 +66,7 @@ function ai_wp_genius_render_dashboard_page() {
 				</tr>
 			</table>
 
-			<?php submit_button( __( 'Create Child Theme', 'ai-wordpress-genius' ) ); ?>
+            <?php submit_button( __( 'Create Child Theme', 'ai-wordpress-genius' ), 'primary', 'submit_child_theme' ); ?>
 		</form>
 
 		<hr>
@@ -136,6 +145,7 @@ function ai_wp_genius_render_dashboard_page() {
                                 <th><?php _e( 'Line', 'ai-wordpress-genius' ); ?></th>
                                 <th><?php _e( 'Issue Found', 'ai-wordpress-genius' ); ?></th>
                                 <th><?php _e( 'AI Suggestion', 'ai-wordpress-genius' ); ?></th>
+                                <th><?php _e( 'Action', 'ai-wordpress-genius' ); ?></th>
                             </tr>
                         </thead>
                         <tbody>
@@ -146,7 +156,17 @@ function ai_wp_genius_render_dashboard_page() {
                                     <td><code><?php echo esc_html( $finding['issue'] ); ?></code></td>
                                     <td>
                                         <p><?php echo esc_html( $finding['ai_suggestion']['explanation'] ); ?></p>
-                                        <p><strong><?php _e( 'Suggestion:', 'ai-wordpress-genius' ); ?></strong> <code><?php echo esc_html( $finding['ai_suggestion']['suggestion'] ); ?></code></p>
+                                        <p><strong><?php _e( 'Suggestion:', 'ai-wordpress-genius' ); ?></strong></p>
+                                        <pre><code><?php echo esc_html( $finding['ai_suggestion']['suggestion'] ); ?></code></pre>
+                                    </td>
+                                    <td>
+                                        <form method="post" action="">
+                                            <?php wp_nonce_field( 'ai_wp_genius_apply_fix_' . md5( $finding['file'] . $finding['line'] ), 'ai_wp_genius_apply_fix_nonce' ); ?>
+                                            <input type="hidden" name="file_path" value="<?php echo esc_attr( $finding['file'] ); ?>" />
+                                            <input type="hidden" name="line_number" value="<?php echo esc_attr( $finding['line'] ); ?>" />
+                                            <input type="hidden" name="suggestion" value="<?php echo esc_attr( $finding['ai_suggestion']['suggestion'] ); ?>" />
+                                            <?php submit_button( __( 'Apply Fix', 'ai-wordpress-genius' ), 'small', 'submit_apply_fix', false ); ?>
+                                        </form>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
@@ -206,6 +226,94 @@ function ai_wp_genius_render_dashboard_page() {
             </table>
             <?php submit_button( __( 'Scan Theme', 'ai-wordpress-genius' ), 'secondary', 'submit_scan_theme' ); ?>
         </form>
+
+		<hr>
+
+		<h2><?php _e( 'AI Code Editor (Beta)', 'ai-wordpress-genius' ); ?></h2>
+		<p><?php _e( 'Select a plugin or theme, provide an instruction, and the AI will modify the code for you. This feature will only modify the main plugin file or the theme\'s `functions.php` file.', 'ai-wordpress-genius' ); ?></p>
+
+		<?php
+		// Display diff and approval form if it exists
+		$modification_request = get_transient( 'ai_wp_genius_modification_request' );
+		if ( $modification_request ) :
+			$diff_table = wp_text_diff( $modification_request['original_content'], $modification_request['new_content'], [
+				'title' => __( 'Proposed Changes', 'ai-wordpress-genius' ),
+				'title_left' => __( 'Original Code', 'ai-wordpress-genius' ),
+				'title_right' => __( 'New Code', 'ai-wordpress-genius' ),
+			]);
+		?>
+			<h3><?php _e( 'Review and Approve Changes', 'ai-wordpress-genius' ); ?></h3>
+			<p><?php printf( __( 'AI has proposed the following changes for the file: %s', 'ai-wordpress-genius' ), '<code>' . esc_html( $modification_request['relative_path'] ) . '</code>' ); ?></p>
+			<?php echo $diff_table; ?>
+			<form method="post" action="">
+				<?php wp_nonce_field( 'ai_wp_genius_approve_changes', 'ai_wp_genius_approve_changes_nonce' ); ?>
+				<input type="hidden" name="modification_key" value="<?php echo esc_attr( $modification_request['key'] ); ?>" />
+				<?php submit_button( __( 'Approve & Apply Changes', 'ai-wordpress-genius' ), 'primary', 'submit_approve_changes' ); ?>
+				<a href="<?php echo esc_url( admin_url( 'admin.php?page=ai-wordpress-genius' ) ); ?>" class="button button-secondary"><?php _e( 'Cancel', 'ai-wordpress-genius' ); ?></a>
+			</form>
+		<?php
+		else :
+		// Show the editor forms if no approval is pending
+		?>
+			<h4><?php _e( 'Modify a Plugin', 'ai-wordpress-genius' ); ?></h4>
+			<form method="post" action="">
+				<?php wp_nonce_field( 'ai_wp_genius_modify_plugin', 'ai_wp_genius_modify_plugin_nonce' ); ?>
+				<input type="hidden" name="modify_type" value="plugin" />
+				<table class="form-table">
+					<tr valign="top">
+						<th scope="row"><label for="plugin_to_modify"><?php _e( 'Select Plugin', 'ai-wordpress-genius' ); ?></label></th>
+						<td>
+							<select name="modify_target" id="plugin_to_modify" style="min-width: 300px;">
+								<?php
+								$plugins = get_plugins();
+								foreach ( $plugins as $plugin_file => $plugin_data ) {
+									if ( strpos( $plugin_file, 'ai-wordpress-genius.php' ) !== false ) continue;
+									echo '<option value="' . esc_attr( $plugin_file ) . '">' . esc_html( $plugin_data['Name'] ) . '</option>';
+								}
+								?>
+							</select>
+						</td>
+					</tr>
+					<tr valign="top">
+						<th scope="row"><label for="plugin_instruction"><?php _e( 'Instructions', 'ai-wordpress-genius' ); ?></label></th>
+						<td>
+							<textarea name="instruction" id="plugin_instruction" rows="3" class="large-text"></textarea>
+							<p class="description"><?php _e( 'e.g., "Change the version number to 2.0.0" or "Add a new shortcode [hello] that returns \'Hello World\'"', 'ai-wordpress-genius' ); ?></p>
+						</td>
+					</tr>
+				</table>
+				<?php submit_button( __( 'Generate Proposed Changes', 'ai-wordpress-genius' ), 'secondary', 'submit_modify_plugin' ); ?>
+			</form>
+
+			<h4><?php _e( 'Modify a Theme', 'ai-wordpress-genius' ); ?></h4>
+			<form method="post" action="">
+				<?php wp_nonce_field( 'ai_wp_genius_modify_theme', 'ai_wp_genius_modify_theme_nonce' ); ?>
+				<input type="hidden" name="modify_type" value="theme" />
+				<table class="form-table">
+					<tr valign="top">
+						<th scope="row"><label for="theme_to_modify"><?php _e( 'Select Theme', 'ai-wordpress-genius' ); ?></label></th>
+						<td>
+							<select name="modify_target" id="theme_to_modify" style="min-width: 300px;">
+								<?php
+								$themes = wp_get_themes();
+								foreach ( $themes as $theme ) {
+									echo '<option value="' . esc_attr( $theme->get_stylesheet() ) . '">' . esc_html( $theme->get( 'Name' ) ) . '</option>';
+								}
+								?>
+							</select>
+						</td>
+					</tr>
+					<tr valign="top">
+						<th scope="row"><label for="theme_instruction"><?php _e( 'Instructions', 'ai-wordpress-genius' ); ?></label></th>
+						<td>
+							<textarea name="instruction" id="theme_instruction" rows="3" class="large-text"></textarea>
+							<p class="description"><?php _e( 'e.g., "Add a function that logs \'Theme is running\' to the error log on init"', 'ai-wordpress-genius' ); ?></p>
+						</td>
+					</tr>
+				</table>
+				<?php submit_button( __( 'Generate Proposed Changes', 'ai-wordpress-genius' ), 'secondary', 'submit_modify_theme' ); ?>
+			</form>
+		<?php endif; ?>
 
 	</div>
 	<?php

@@ -6,54 +6,38 @@ if ( ! defined( 'WPINC' ) ) {
 }
 
 /**
- * Simulates a call to an AI model to get theme structure.
- *
- * In a real implementation, this would make an API call to an AI service.
- * The prompt would include the user's description.
+ * Generates the prompt for the AI theme generator.
  *
  * @param string $theme_description The user's description of the theme.
- * @return string A JSON string representing the theme structure.
+ * @return string The generated prompt.
  */
-function ai_wp_genius_get_simulated_ai_response( $theme_description ) {
-	// For now, we ignore the description and return a hardcoded "dark theme" response.
-	$response = [
-		'settings' => [
-			'color' => [
-				'palette' => [
-					[ 'slug' => 'background', 'color' => '#1a1a1a', 'name' => 'Background' ],
-					[ 'slug' => 'foreground', 'color' => '#f0f0f0', 'name' => 'Foreground' ],
-					[ 'slug' => 'primary', 'color' => '#00bfff', 'name' => 'Primary' ],
-				],
-			],
-			'layout' => [
-				'contentSize' => '700px',
-				'wideSize' => '1100px',
-			],
-		],
-		'styles' => [
-			'color' => [
-				'background' => 'var(--wp--preset--color--background)',
-				'text' => 'var(--wp--preset--color--foreground)',
-			],
-			'elements' => [
-				'link' => [
-					'color' => [
-						'text' => 'var(--wp--preset--color--primary)',
-					],
-				],
-			],
-		],
-		'templates' => [
-			'index' => '<!-- wp:template-part {"slug":"header","tagName":"header"} /--><!-- wp:group {"tagName":"main","style":{"spacing":{"padding":{"top":"var:preset|spacing|50","bottom":"var:preset|spacing|50"}}},"layout":{"type":"constrained"}} --><!-- wp:query-loop --><!-- wp:post-template --><!-- wp:post-title {"isLink":true} /--><!-- wp:post-excerpt /--><!-- /wp:post-template --><!-- /wp:query-loop --><!-- /wp:group --><!-- wp:template-part {"slug":"footer","tagName":"footer"} /-->',
-			'parts' => [
-				'header' => '<!-- wp:group {"style":{"spacing":{"padding":{"top":"var:preset|spacing|40","bottom":"var:preset|spacing|40"}}},"layout":{"type":"flex","justifyContent":"space-between"}} --><!-- wp:site-title /--><!-- wp:navigation /--><!-- /wp:group -->',
-				'footer' => '<!-- wp:group {"style":{"spacing":{"padding":{"top":"var:preset|spacing|40","bottom":"var:preset|spacing|40"}}},"layout":{"type":"flex","justifyContent":"center"}} --><!-- wp:paragraph {"align":"center"} -->Proudly powered by AI WordPress Genius.<!-- /wp:paragraph --><!-- /wp:group -->',
-			],
-		],
-	];
+function ai_wp_genius_generate_theme_prompt( $theme_description ) {
+	return sprintf(
+		"You are an expert WordPress theme developer specializing in modern block themes. Your task is to generate the complete structure of a WordPress block theme based on a user's description.
 
-	return json_encode( $response );
+You MUST respond with ONLY a valid JSON object and nothing else. Do not include ```json markdown delimiters or any explanatory text before or after the JSON. The JSON object must have the following structure:
+{
+  \"settings\": { ... },
+  \"styles\": { ... },
+  \"templates\": {
+    \"index\": \"HTML content for index.html\"
+  },
+  \"parts\": {
+    \"header\": \"HTML content for parts/header.html\",
+    \"footer\": \"HTML content for parts/footer.html\"
+  }
 }
+
+The \"settings\" and \"styles\" objects must conform to the structure of a WordPress `theme.json` file (version 2).
+The \"templates\" and \"parts\" values must be strings containing the full HTML block markup for the respective template files.
+
+User's theme description: \"%s\"
+
+Based on this description, generate the complete JSON object. The HTML templates should be simple but functional, including elements like `wp:site-title`, `wp:navigation`, `wp:query-loop`, `wp:post-title`, `wp:post-content`, and `wp:template-part`.",
+		$theme_description
+	);
+}
+
 
 /**
  * Handles the AI theme creation logic.
@@ -83,6 +67,27 @@ function ai_wp_genius_handle_theme_creation() {
 		return;
 	}
 
+	// Generate the prompt and get the AI response.
+	$prompt = ai_wp_genius_generate_theme_prompt( $theme_description );
+	$ai_response_json = ai_wp_genius_get_ai_response( $prompt );
+
+	// Handle errors from the AI service.
+	if ( is_wp_error( $ai_response_json ) ) {
+		add_action( 'admin_notices', function () use ( $ai_response_json ) {
+			echo '<div class="notice notice-error is-dismissible"><p><strong>' . __( 'AI Service Error:', 'ai-wordpress-genius' ) . '</strong> ' . esc_html( $ai_response_json->get_error_message() ) . '</p></div>';
+		} );
+		return;
+	}
+
+	$ai_response = json_decode( $ai_response_json, true );
+
+	if ( ! $ai_response || ! isset($ai_response['settings']) || ! isset($ai_response['templates']['index']) ) {
+		add_action( 'admin_notices', function () {
+			echo '<div class="notice notice-error is-dismissible"><p>' . __( 'The AI returned an invalid or incomplete structure for the theme. Please try again with a different prompt.', 'ai-wordpress-genius' ) . '</p></div>';
+		} );
+		return;
+	}
+
 	// Initialize WP_Filesystem
 	global $wp_filesystem;
 	if ( empty( $wp_filesystem ) ) {
@@ -90,7 +95,6 @@ function ai_wp_genius_handle_theme_creation() {
 		WP_Filesystem();
 	}
 
-	// Create the theme directory
 	if ( ! $wp_filesystem->mkdir( $theme_path ) ) {
 		add_action( 'admin_notices', function () {
 			echo '<div class="notice notice-error is-dismissible"><p>' . __( 'Could not create theme directory.', 'ai-wordpress-genius' ) . '</p></div>';
@@ -98,25 +102,10 @@ function ai_wp_genius_handle_theme_creation() {
 		return;
 	}
 
-	// Simulate AI call and get theme structure
-	$ai_response_json = ai_wp_genius_get_simulated_ai_response( $theme_description );
-	$ai_response = json_decode( $ai_response_json, true );
-
-	if ( ! $ai_response ) {
-		add_action( 'admin_notices', function () {
-			echo '<div class="notice notice-error is-dismissible"><p>' . __( 'AI failed to generate a valid theme structure.', 'ai-wordpress-genius' ) . '</p></div>';
-		} );
-		$wp_filesystem->rmdir( $theme_path, true ); // Clean up
-		return;
-	}
-
 	// --- Create files ---
 	$files_to_create = [];
-
-	// style.css
 	$files_to_create['style.css'] = "/*\n Theme Name: {$theme_name}\n Author: AI WordPress Genius\n Version: 1.0\n*/";
 
-	// theme.json
 	$theme_json_content = [
 		'version' => 2,
 		'$schema' => 'https://schemas.wp.org/wp/6.2/theme.json',
@@ -125,17 +114,16 @@ function ai_wp_genius_handle_theme_creation() {
 	];
 	$files_to_create['theme.json'] = json_encode( $theme_json_content, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
 
-	// templates/index.html
 	$wp_filesystem->mkdir( $theme_path . '/templates' );
 	$files_to_create['templates/index.html'] = $ai_response['templates']['index'];
 
-	// parts/header.html and parts/footer.html
 	$wp_filesystem->mkdir( $theme_path . '/parts' );
-	foreach ( $ai_response['templates']['parts'] as $part_name => $part_content ) {
-		$files_to_create["parts/{$part_name}.html"] = $part_content;
+	if ( isset( $ai_response['parts'] ) && is_array( $ai_response['parts'] ) ) {
+		foreach ( $ai_response['parts'] as $part_name => $part_content ) {
+			$files_to_create["parts/{$part_name}.html"] = $part_content;
+		}
 	}
 
-	// Write all files
 	$all_files_written = true;
 	foreach ( $files_to_create as $filename => $content ) {
 		if ( ! $wp_filesystem->put_contents( "{$theme_path}/{$filename}", $content, FS_CHMOD_FILE ) ) {
@@ -148,11 +136,10 @@ function ai_wp_genius_handle_theme_creation() {
 		add_action( 'admin_notices', function () {
 			echo '<div class="notice notice-error is-dismissible"><p>' . __( 'Error writing theme files. The process has been aborted.', 'ai-wordpress-genius' ) . '</p></div>';
 		} );
-		$wp_filesystem->rmdir( $theme_path, true ); // Clean up
+		$wp_filesystem->rmdir( $theme_path, true );
 		return;
 	}
 
-	// Success!
 	add_action( 'admin_notices', function () use ( $theme_name ) {
 		$themes_page_url = admin_url( 'themes.php' );
 		echo '<div class="notice notice-success is-dismissible"><p>' . sprintf( __( 'Successfully created the "%s" theme. You can now <a href="%s">preview and activate it</a>.', 'ai-wordpress-genius' ), esc_html( $theme_name ), esc_url( $themes_page_url ) ) . '</p></div>';

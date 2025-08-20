@@ -10,7 +10,7 @@ if ( ! defined( 'WPINC' ) ) {
  */
 function ai_wp_genius_handle_child_theme_creation() {
     // Check if our form was submitted
-    if ( ! isset( $_POST['submit'] ) || ! isset( $_POST['parent_theme'] ) ) {
+    if ( ! isset( $_POST['submit_child_theme'] ) || ! isset( $_POST['parent_theme'] ) ) {
         return;
     }
 

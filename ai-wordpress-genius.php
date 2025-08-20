@@ -36,3 +36,12 @@ require_once AI_WP_GENIUS_PLUGIN_DIR . 'includes/ai-plugin-generator.php';
 
 // Include the AI bug finder logic
 require_once AI_WP_GENIUS_PLUGIN_DIR . 'includes/ai-bug-finder.php';
+
+// Include the settings page logic
+require_once AI_WP_GENIUS_PLUGIN_DIR . 'admin/settings.php';
+
+// Include the AI service layer
+require_once AI_WP_GENIUS_PLUGIN_DIR . 'includes/ai-service.php';
+
+// Include the AI code editor logic
+require_once AI_WP_GENIUS_PLUGIN_DIR . 'includes/ai-code-editor.php';
