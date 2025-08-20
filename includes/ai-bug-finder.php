@@ -118,6 +118,7 @@ function ai_wp_genius_handle_agent_bug_finder() {
 		'relative_path'    => str_replace( WP_CONTENT_DIR, '', $proposed_fix['full_path'] ),
 		'original_content' => $proposed_fix['original_content'],
 		'new_content'      => $proposed_fix['new_content'],
+		'explanation'      => $proposed_fix['explanation'],
 	];
 	set_transient( 'ai_wp_genius_modification_request', $modification_request, HOUR_IN_SECONDS );
 
@@ -147,7 +148,12 @@ Here is the entire original content of the PHP file (`%s`):
 
 Please analyze the file in the context of the user's bug report and rewrite the entire file with the necessary corrections.
 
-You MUST respond with ONLY the complete, modified content of the PHP file. Do not add any explanations, comments, or markdown formatting like ```php. Your response should be the raw code of the new file from start to finish. If you determine that no changes are needed in this specific file, you MUST return the original, unmodified file content.",
+You MUST respond with ONLY a valid JSON object and nothing else. Do not include any explanatory text before or after the JSON. The JSON object must have the following structure:
+{
+  \"explanation\": \"A clear explanation of the changes you made to fix the bug, using Markdown for formatting.\",
+  \"code\": \"The complete, modified content of the PHP file.\"
+}
+If you determine that no changes are needed in this specific file, you MUST return the original, unmodified file content in the \"code\" field and provide an explanation like \"No changes needed in this file.\"",
 		$bug_description,
 		$file_path,
 		$original_content
@@ -184,11 +190,21 @@ function ai_wp_genius_analyze_and_fix_files( $files_to_inspect, $bug_description
 		}
 
 		$prompt = ai_wp_genius_generate_fix_prompt( $bug_description, $file_path, $original_content );
-		$new_content = ai_wp_genius_get_ai_response( $prompt );
+		$ai_response_json = ai_wp_genius_get_ai_response( $prompt );
 
-		if ( is_wp_error( $new_content ) ) {
-			return $new_content; // Propagate the error up
+		if ( is_wp_error( $ai_response_json ) ) {
+			return $ai_response_json; // Propagate the error up
 		}
+
+		$decoded_response = json_decode( $ai_response_json, true );
+
+		if ( json_last_error() !== JSON_ERROR_NONE || ! isset( $decoded_response['code'] ) || ! isset( $decoded_response['explanation'] ) ) {
+			// If the AI fails to return valid JSON, we can't proceed with this file.
+			// We could return an error here, but it's better to just skip to the next file.
+			continue;
+		}
+
+		$new_content = $decoded_response['code'];
 
 		// Check if the AI actually made a change (trimming whitespace for comparison)
 		if ( trim( $original_content ) !== trim( $new_content ) ) {
@@ -196,6 +212,7 @@ function ai_wp_genius_analyze_and_fix_files( $files_to_inspect, $bug_description
 				'full_path'        => $file_path,
 				'original_content' => $original_content,
 				'new_content'      => $new_content,
+				'explanation'      => $decoded_response['explanation'],
 			];
 		}
 	}

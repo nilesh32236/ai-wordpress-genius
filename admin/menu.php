@@ -186,6 +186,12 @@ function ai_wp_genius_render_dashboard_page() {
 		?>
 			<h3><?php _e( 'Review and Approve Changes', 'ai-wordpress-genius' ); ?></h3>
 			<p><?php printf( __( 'AI has proposed the following changes for the file: %s', 'ai-wordpress-genius' ), '<code>' . esc_html( $modification_request['relative_path'] ) . '</code>' ); ?></p>
+
+			<h4><?php _e( 'AI Explanation', 'ai-wordpress-genius' ); ?></h4>
+			<div class="ai-explanation-box">
+				<?php echo ai_wp_genius_format_ai_response( $modification_request['explanation'] ); ?>
+			</div>
+
 			<?php echo $diff_table; ?>
 			<form method="post" action="">
 				<?php wp_nonce_field( 'ai_wp_genius_approve_changes', 'ai_wp_genius_approve_changes_nonce' ); ?>

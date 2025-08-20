@@ -23,7 +23,11 @@ Here is the entire original content of the PHP file:
 %s
 ```
 
-You MUST respond with ONLY the complete, modified content of the PHP file. Do not add any explanations, comments, or markdown formatting like ```php. Your response should be the raw code of the new file from start to finish.",
+You MUST respond with ONLY a valid JSON object and nothing else. Do not include any explanatory text before or after the JSON. The JSON object must have the following structure:
+{
+  \"explanation\": \"A clear explanation of the changes you made, using Markdown for formatting.\",
+  \"code\": \"The complete, modified content of the PHP file.\"
+}",
 		$instruction,
 		$original_content
 	);
@@ -71,10 +75,18 @@ function ai_wp_genius_handle_code_modification() {
 
 	$original_content = $wp_filesystem->get_contents( $target_file );
 	$prompt = ai_wp_genius_generate_code_modification_prompt( $instruction, $original_content );
-	$new_content = ai_wp_genius_get_ai_response( $prompt );
+	$ai_response_json = ai_wp_genius_get_ai_response( $prompt );
 
-	if ( is_wp_error( $new_content ) ) {
-		add_action( 'admin_notices', function() use ( $new_content ) { echo '<div class="notice notice-error is-dismissible"><p><strong>' . __( 'AI Service Error:', 'ai-wordpress-genius' ) . '</strong> ' . esc_html( $new_content->get_error_message() ) . '</p></div>'; });
+	if ( is_wp_error( $ai_response_json ) ) {
+		add_action( 'admin_notices', function() use ( $ai_response_json ) { echo '<div class="notice notice-error is-dismissible"><p><strong>' . __( 'AI Service Error:', 'ai-wordpress-genius' ) . '</strong> ' . esc_html( $ai_response_json->get_error_message() ) . '</p></div>'; });
+		return;
+	}
+
+	$decoded_response = json_decode( $ai_response_json, true );
+	if ( json_last_error() !== JSON_ERROR_NONE || ! isset( $decoded_response['code'] ) || ! isset( $decoded_response['explanation'] ) ) {
+		add_action( 'admin_notices', function () {
+			echo '<div class="notice notice-error is-dismissible"><p>' . __( 'The AI returned an invalid or unexpected format. Please try again.', 'ai-wordpress-genius' ) . '</p></div>';
+		} );
 		return;
 	}
 
@@ -85,7 +97,8 @@ function ai_wp_genius_handle_code_modification() {
 		'full_path'        => $target_file,
 		'relative_path'    => str_replace( WP_CONTENT_DIR, '', $target_file ),
 		'original_content' => $original_content,
-		'new_content'      => $new_content,
+		'new_content'      => $decoded_response['code'],
+		'explanation'      => $decoded_response['explanation'],
 	];
 	set_transient( 'ai_wp_genius_modification_request', $modification_request, HOUR_IN_SECONDS );
 

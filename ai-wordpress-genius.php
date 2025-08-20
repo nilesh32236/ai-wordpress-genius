@@ -45,3 +45,6 @@ require_once AI_WP_GENIUS_PLUGIN_DIR . 'includes/ai-service.php';
 
 // Include the AI code editor logic
 require_once AI_WP_GENIUS_PLUGIN_DIR . 'includes/ai-code-editor.php';
+
+// Include the formatting utility
+require_once AI_WP_GENIUS_PLUGIN_DIR . 'includes/formatting.php';
