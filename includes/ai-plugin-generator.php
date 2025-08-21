@@ -44,6 +44,11 @@ function ai_wp_genius_handle_plugin_creation() {
 		wp_die( __( 'You do not have permission to install plugins.', 'ai-wordpress-genius' ) );
 	}
 
+	// Respect DISALLOW_FILE_MODS.
+	if ( defined( 'DISALLOW_FILE_MODS' ) && DISALLOW_FILE_MODS ) {
+		wp_die( esc_html__( 'File modifications are disabled on this site.', 'ai-wordpress-genius' ) );
+	}
+
 	$plugin_name = sanitize_text_field( $_POST['plugin_name'] );
 	$plugin_slug = sanitize_title( $plugin_name );
 	$plugin_description = sanitize_textarea_field( $_POST['plugin_description'] );
@@ -51,10 +56,27 @@ function ai_wp_genius_handle_plugin_creation() {
 	$plugin_file_path = $plugin_dir_path . '/' . $plugin_slug . '.php';
 
 	if ( file_exists( $plugin_dir_path ) ) {
-		add_action( 'admin_notices', function () use ( $plugin_name ) {
+		add_action( 'admin_notices', function () use ( $plugin_slug ) {
 			echo '<div class="notice notice-warning is-dismissible"><p>' . sprintf( __( 'A plugin folder named "%s" already exists.', 'ai-wordpress-genius' ), esc_html( $plugin_slug ) ) . '</p></div>';
 		} );
 		return;
+	}
+
+	// Strip BOM, PHP tags, and trim whitespace from the AI-generated code.
+	$php_code_body = preg_replace( '/^\x{FEFF}/u', '', $php_code_body ); // Strip BOM
+	$php_code_body = preg_replace( '/^<\\?php\\s*/i', '', $php_code_body );
+	$php_code_body = preg_replace( '/\\?>\\s*$/i', '', $php_code_body );
+	$php_code_body = trim( $php_code_body );
+
+	// Run a simple static check for dangerous constructs.
+	$dangerous_constructs = [ 'eval', 'system', 'shell_exec', 'passthru', 'proc_open', 'popen', 'exec', 'pcntl_exec', 'assert' ];
+	foreach ( $dangerous_constructs as $construct ) {
+		if ( preg_match( '/\\b' . $construct . '\\s*\\(/i', $php_code_body ) ) {
+			add_action( 'admin_notices', function () use ( $construct ) {
+				echo '<div class="notice notice-error is-dismissible"><p>' . sprintf( esc_html__( 'The AI-generated code was rejected because it contained a potentially dangerous construct: %s.', 'ai-wordpress-genius' ), '<code>' . esc_html( $construct ) . '</code>' ) . '</p></div>';
+			} );
+			return;
+		}
 	}
 
 	// Generate the prompt and get the AI response.

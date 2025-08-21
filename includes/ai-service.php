@@ -61,15 +61,51 @@ function ai_wp_genius_get_ai_response( $prompt, $session_id = null ) {
 
     $response_code = wp_remote_retrieve_response_code( $response );
     $response_body = wp_remote_retrieve_body( $response );
+
+    // Handle specific HTTP errors that suggest a retry.
+    if ( in_array( $response_code, [ 429, 503 ], true ) ) {
+        return new WP_Error(
+            'api_retryable_error',
+            __( 'The API service is temporarily unavailable or you have exceeded the rate limit. Please try again in a few minutes.', 'ai-wordpress-genius' ),
+            [ 'status' => $response_code ]
+        );
+    }
+
     $response_data = json_decode( $response_body, true );
 
+    // Handle JSON decoding errors.
+    if ( json_last_error() !== JSON_ERROR_NONE ) {
+        return new WP_Error(
+            'invalid_json_response',
+            __( 'The API returned an invalid response that could not be decoded.', 'ai-wordpress-genius' ),
+            [
+                'status'        => $response_code,
+                'json_error'    => json_last_error_msg(),
+                'response_body' => substr( $response_body, 0, 500 ), // Include a snippet of the body.
+            ]
+        );
+    }
+
+    // Handle non-200 responses that are valid JSON.
     if ( $response_code !== 200 ) {
-        $error_message = isset( $response_data['error']['message'] ) ? $response_data['error']['message'] : __( 'Unknown API error.', 'ai-wordpress-genius' );
-        return new WP_Error( 'api_error', 'API Error: ' . $error_message );
+        $error_message = isset( $response_data['error']['message'] ) ? $response_data['error']['message'] : __( 'An unknown API error occurred.', 'ai-wordpress-genius' );
+        return new WP_Error(
+            'api_error',
+            sprintf( __( 'API Error (%d): %s', 'ai-wordpress-genius' ), $response_code, $error_message ),
+            isset( $response_data['error'] ) ? $response_data['error'] : []
+        );
+    }
+
+    // Handle safety blocks from the API.
+    if ( ! empty( $response_data['promptFeedback']['blockReason'] ) ) {
+        $reason = $response_data['promptFeedback']['blockReason'];
+        /* translators: %s: The reason the prompt was blocked by the API. */
+        $message = sprintf( __( 'The request was blocked by the API for the following reason: %s. Please adjust your prompt and try again.', 'ai-wordpress-genius' ), '<strong>' . esc_html( $reason ) . '</strong>' );
+        return new WP_Error( 'api_safety_block', $message, $response_data['promptFeedback'] );
     }
 
     if ( empty( $response_data['candidates'][0]['content']['parts'][0]['text'] ) ) {
-        // This can happen if the AI returns a "safety" response or other empty content
+        // This can happen if the AI returns empty content for other reasons.
         return new WP_Error( 'no_content', __( 'The AI returned an empty or invalid response. This might be due to the safety settings of your prompt or a temporary API issue.', 'ai-wordpress-genius' ) );
     }
 

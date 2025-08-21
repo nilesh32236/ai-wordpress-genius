@@ -55,6 +55,11 @@ function ai_wp_genius_handle_theme_creation() {
 		wp_die( __( 'You do not have permission to install themes.', 'ai-wordpress-genius' ) );
 	}
 
+	// Respect sites that disallow file modifications.
+	if ( defined( 'DISALLOW_FILE_MODS' ) && DISALLOW_FILE_MODS ) {
+		wp_die( esc_html__( 'Theme installation is disabled on this site.', 'ai-wordpress-genius' ) );
+	}
+
 	$theme_name = sanitize_text_field( $_POST['theme_name'] );
 	$theme_slug = sanitize_title( $theme_name );
 	$theme_description = sanitize_textarea_field( $_POST['theme_description'] );
@@ -107,11 +112,15 @@ function ai_wp_genius_handle_theme_creation() {
 	$files_to_create['style.css'] = "/*\n Theme Name: {$theme_name}\n Author: AI WordPress Genius\n Version: 1.0\n*/";
 
 	$theme_json_content = [
-		'version' => 2,
-		'$schema' => 'https://schemas.wp.org/wp/6.2/theme.json',
+		'version'  => 2,
+		'$schema'  => 'https://schemas.wp.org/wp/6.2/theme.json',
 		'settings' => $ai_response['settings'],
-		'styles' => $ai_response['styles'],
 	];
+
+	// Only add the styles key if it exists in the AI response.
+	if ( ! empty( $ai_response['styles'] ) ) {
+		$theme_json_content['styles'] = $ai_response['styles'];
+	}
 	$files_to_create['theme.json'] = json_encode( $theme_json_content, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
 
 	$wp_filesystem->mkdir( $theme_path . '/templates' );

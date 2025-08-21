@@ -93,26 +93,51 @@ function ai_wp_genius_handle_child_theme_creation() {
         "add_action( 'wp_enqueue_scripts', 'ai_wp_genius_child_enqueue_styles' );\n" .
         "// END ENQUEUE PARENT ACTION";
 
-    // Initialize the WP_Filesystem
+    // Initialize the WP_Filesystem.
     global $wp_filesystem;
-    if (empty($wp_filesystem)) {
-        require_once (ABSPATH . '/wp-admin/includes/file.php');
+    if ( empty( $wp_filesystem ) ) {
+        require_once( ABSPATH . '/wp-admin/includes/file.php' );
         WP_Filesystem();
     }
 
-    // Write the files
     $style_file = $child_theme_path . '/style.css';
     $functions_file = $child_theme_path . '/functions.php';
+    $style_result = false;
+    $functions_result = false;
+    $filesystem_method = 'native'; // Default to native PHP functions.
 
-    $style_result = $wp_filesystem->put_contents( $style_file, $stylesheet_content, FS_CHMOD_FILE );
-    $functions_result = $wp_filesystem->put_contents( $functions_file, $functions_content, FS_CHMOD_FILE );
+    // Use WP_Filesystem if it's available and properly initialized.
+    if ( is_a( $wp_filesystem, 'WP_Filesystem_Base' ) && method_exists( $wp_filesystem, 'put_contents' ) ) {
+        $style_result = $wp_filesystem->put_contents( $style_file, $stylesheet_content, FS_CHMOD_FILE );
+        $functions_result = $wp_filesystem->put_contents( $functions_file, $functions_content, FS_CHMOD_FILE );
+        $filesystem_method = 'wp_filesystem';
+    }
 
+    // Fallback to native PHP functions if WP_Filesystem failed or wasn't available.
+    if ( ! $style_result || ! $functions_result ) {
+        $filesystem_method = 'native';
+        $style_result = file_put_contents( $style_file, $stylesheet_content );
+        $functions_result = file_put_contents( $functions_file, $functions_content );
+    }
 
     if ( ! $style_result || ! $functions_result ) {
-        // Clean up created directory if file writing fails
-        $wp_filesystem->rmdir($child_theme_path, true);
+        // Clean up created directory and files if writing fails.
+        if ( 'wp_filesystem' === $filesystem_method && is_a( $wp_filesystem, 'WP_Filesystem_Base' ) ) {
+            $wp_filesystem->rmdir( $child_theme_path, true );
+        } else {
+            // Native PHP cleanup.
+            if ( file_exists( $style_file ) ) {
+                @unlink( $style_file );
+            }
+            if ( file_exists( $functions_file ) ) {
+                @unlink( $functions_file );
+            }
+            if ( is_dir( $child_theme_path ) ) {
+                @rmdir( $child_theme_path );
+            }
+        }
         add_action( 'admin_notices', function() {
-            echo '<div class="notice notice-error is-dismissible"><p>' . __( 'Could not write theme files (style.css or functions.php). Please check file permissions.', 'ai-wordpress-genius' ) . '</p></div>';
+            echo '<div class="notice notice-error is-dismissible"><p>' . esc_html__( 'Could not write theme files (style.css or functions.php). Please check file permissions.', 'ai-wordpress-genius' ) . '</p></div>';
         });
         return;
     }

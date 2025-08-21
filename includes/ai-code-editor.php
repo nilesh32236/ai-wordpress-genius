@@ -9,11 +9,27 @@ if ( ! defined( 'WPINC' ) ) {
  * Handles the cancellation of a modification request, cleaning up the transient.
  */
 function ai_wp_genius_handle_cancel_modification() {
-    if ( isset( $_GET['page'] ) && $_GET['page'] === 'ai-wordpress-genius' && isset( $_GET['ai_action'] ) && $_GET['ai_action'] === 'cancel_modification' ) {
-        delete_transient( 'ai_wp_genius_modification_request' );
-        wp_safe_redirect( admin_url( 'admin.php?page=ai-wordpress-genius' ) );
-        exit;
-    }
+	// Check if the cancel button was clicked.
+	if ( ! isset( $_POST['submit_cancel_modification'] ) ) {
+		return;
+	}
+
+	// Verify the nonce.
+	check_admin_referer( 'ai_wp_genius_cancel_modification', 'ai_wp_genius_cancel_modification_nonce' );
+
+	// Check user capability. A general capability like 'manage_options' is suitable here.
+	if ( ! current_user_can( 'manage_options' ) ) {
+		wp_die( esc_html__( 'You do not have permission to perform this action.', 'ai-wordpress-genius' ) );
+	}
+
+	// The modification key from the form isn't strictly needed for cancel, but we check it exists.
+	if ( ! isset( $_POST['modification_key'] ) ) {
+		wp_die( esc_html__( 'Invalid request.', 'ai-wordpress-genius' ) );
+	}
+
+	delete_transient( 'ai_wp_genius_modification_request' );
+	wp_safe_redirect( admin_url( 'admin.php?page=ai-wordpress-genius' ) );
+	exit;
 }
 add_action( 'admin_init', 'ai_wp_genius_handle_cancel_modification' );
 
@@ -53,31 +69,66 @@ function ai_wp_genius_handle_code_modification() {
 		return;
 	}
 
-	$modify_type = sanitize_text_field( $_POST['modify_type'] );
-	$target_slug = sanitize_text_field( $_POST['modify_target'] );
-	$instruction = sanitize_textarea_field( $_POST['instruction'] );
+	// Guard required POST keys.
+	if ( ! isset( $_POST['modify_type'], $_POST['modify_target'], $_POST['instruction'] ) ) {
+		wp_die( esc_html__( 'Invalid request. Missing required fields.', 'ai-wordpress-genius' ) );
+	}
+
+	// Unslash and sanitize inputs.
+	$modify_type = sanitize_text_field( wp_unslash( $_POST['modify_type'] ) );
+	$target_slug = sanitize_text_field( wp_unslash( $_POST['modify_target'] ) );
+	$instruction = sanitize_textarea_field( wp_unslash( $_POST['instruction'] ) );
+
+	// Build nonce action and name after confirming modify_type.
 	$nonce_action = 'ai_wp_genius_modify_' . $modify_type;
-	$nonce_name = 'ai_wp_genius_modify_' . $modify_type . '_nonce';
+	$nonce_name   = 'ai_wp_genius_modify_' . $modify_type . '_nonce';
 
-	if ( ! isset( $_POST[$nonce_name] ) || ! wp_verify_nonce( $_POST[$nonce_name], $nonce_action ) ) {
-		wp_die( __( 'Security check failed.', 'ai-wordpress-genius' ) );
+	if ( ! isset( $_POST[ $nonce_name ] ) || ! wp_verify_nonce( $_POST[ $nonce_name ], $nonce_action ) ) {
+		wp_die( esc_html__( 'Security check failed.', 'ai-wordpress-genius' ) );
 	}
 
-	if ( ! current_user_can( 'edit_plugins' ) && ! current_user_can( 'edit_themes' ) ) {
-		wp_die( __( 'You do not have permission to edit files.', 'ai-wordpress-genius' ) );
+	// Respect DISALLOW_FILE_EDIT and check capabilities.
+	if ( defined( 'DISALLOW_FILE_EDIT' ) && DISALLOW_FILE_EDIT ) {
+		wp_die( esc_html__( 'File editing is disabled on this site.', 'ai-wordpress-genius' ) );
 	}
 
+	if ( 'plugin' === $modify_type ) {
+		if ( ! current_user_can( 'edit_plugins' ) ) {
+			wp_die( esc_html__( 'You do not have permission to edit plugins.', 'ai-wordpress-genius' ) );
+		}
+	} elseif ( 'theme' === $modify_type ) {
+		if ( ! current_user_can( 'edit_themes' ) ) {
+			wp_die( esc_html__( 'You do not have permission to edit themes.', 'ai-wordpress-genius' ) );
+		}
+	} else {
+		wp_die( esc_html__( 'Invalid modification type.', 'ai-wordpress-genius' ) );
+	}
+
+	// Prevent path traversal and validate the target file.
+	$base_path = '';
 	$target_file = '';
-	if ( $modify_type === 'plugin' ) {
-		$target_file = WP_PLUGIN_DIR . '/' . $target_slug;
-	} elseif ( $modify_type === 'theme' ) {
-		$target_file = get_theme_root() . '/' . $target_slug . '/functions.php';
+	if ( 'plugin' === $modify_type ) {
+		$base_path   = wp_normalize_path( WP_PLUGIN_DIR );
+		$target_file = wp_normalize_path( $base_path . '/' . $target_slug );
+	} elseif ( 'theme' === $modify_type ) {
+		$theme_dir   = get_theme_root() . '/' . $target_slug;
+		$base_path   = wp_normalize_path( realpath( $theme_dir ) );
+		$target_file = wp_normalize_path( $base_path . '/functions.php' );
 	}
 
-	if ( ! $target_file || ! file_exists( $target_file ) ) {
-		add_action( 'admin_notices', function() { echo '<div class="notice notice-error is-dismissible"><p>' . __( 'Target file not found.', 'ai-wordpress-genius' ) . '</p></div>'; });
+	if ( empty( $base_path ) || empty( $target_file ) ) {
+		wp_die( esc_html__( 'Could not determine target file path.', 'ai-wordpress-genius' ) );
+	}
+
+	$real_target = realpath( $target_file );
+
+	if ( ! $real_target || ! is_file( $real_target ) || ! is_readable( $real_target ) || 0 !== strpos( $real_target, $base_path ) ) {
+		add_action( 'admin_notices', function () {
+			echo '<div class="notice notice-error is-dismissible"><p>' . esc_html__( 'Target file not found, is not readable, or is outside of the allowed directory.', 'ai-wordpress-genius' ) . '</p></div>';
+		} );
 		return;
 	}
+	$target_file = $real_target; // Use the canonical path.
 
 	global $wp_filesystem;
 	if ( empty( $wp_filesystem ) ) {
@@ -85,33 +136,42 @@ function ai_wp_genius_handle_code_modification() {
 		WP_Filesystem();
 	}
 
+	// Guard against read failures.
 	$original_content = $wp_filesystem->get_contents( $target_file );
+	if ( false === $original_content ) {
+		add_action( 'admin_notices', function () {
+			echo '<div class="notice notice-error is-dismissible"><p>' . esc_html__( 'Could not read file contents. Please check file permissions.', 'ai-wordpress-genius' ) . '</p></div>';
+		} );
+		return;
+	}
 
-	// Start a new conversation session
-	$session_id = ai_wp_genius_create_new_session_id();
-	$prompt = ai_wp_genius_generate_code_modification_prompt( $instruction, $original_content );
+	// Start a new conversation session.
+	$session_id       = ai_wp_genius_create_new_session_id();
+	$prompt           = ai_wp_genius_generate_code_modification_prompt( $instruction, $original_content );
 	$ai_response_json = ai_wp_genius_get_ai_response( $prompt, $session_id );
 
 	if ( is_wp_error( $ai_response_json ) ) {
-		add_action( 'admin_notices', function() use ( $ai_response_json ) { echo '<div class="notice notice-error is-dismissible"><p><strong>' . __( 'AI Service Error:', 'ai-wordpress-genius' ) . '</strong> ' . esc_html( $ai_response_json->get_error_message() ) . '</p></div>'; });
+		add_action( 'admin_notices', function () use ( $ai_response_json ) {
+			echo '<div class="notice notice-error is-dismissible"><p><strong>' . esc_html__( 'AI Service Error:', 'ai-wordpress-genius' ) . '</strong> ' . esc_html( $ai_response_json->get_error_message() ) . '</p></div>';
+		} );
 		return;
 	}
 
 	$decoded_response = ai_wp_genius_clean_and_decode_json( $ai_response_json );
 	if ( ! $decoded_response || ! isset( $decoded_response['code'] ) || ! isset( $decoded_response['explanation'] ) ) {
 		add_action( 'admin_notices', function () {
-			echo '<div class="notice notice-error is-dismissible"><p>' . __( 'The AI returned an invalid or unexpected JSON format. Please try again.', 'ai-wordpress-genius' ) . '</p></div>';
+			echo '<div class="notice notice-error is-dismissible"><p>' . esc_html__( 'The AI returned an invalid or unexpected JSON format. Please try again.', 'ai-wordpress-genius' ) . '</p></div>';
 		} );
 		return;
 	}
 
-	// Create a transient to hold the modification request for approval
-	$key = md5( uniqid( rand(), true ) );
+	// Create a transient to hold the modification request for approval.
+	$key                  = md5( uniqid( rand(), true ) );
 	$modification_request = [
 		'key'              => $key,
 		'session_id'       => $session_id,
 		'full_path'        => $target_file,
-		'relative_path'    => str_replace( WP_CONTENT_DIR, '', $target_file ),
+		'relative_path'    => str_replace( trailingslashit( WP_CONTENT_DIR ), '', $target_file ),
 		'original_content' => $original_content,
 		'new_content'      => $decoded_response['code'],
 		'explanation'      => $decoded_response['explanation'],

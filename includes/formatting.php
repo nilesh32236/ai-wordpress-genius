@@ -4,8 +4,10 @@ if ( ! defined( 'WPINC' ) ) {
     die;
 }
 
-// Include the Markdown parsing library.
-require_once AI_WP_GENIUS_PLUGIN_DIR . 'includes/lib/Parsedown.php';
+// Include the Markdown parsing library, but only if the class doesn't already exist.
+if ( ! class_exists( 'Parsedown' ) ) {
+	require_once AI_WP_GENIUS_PLUGIN_DIR . 'includes/lib/Parsedown.php';
+}
 
 /**
  * Cleans the raw JSON string from the AI and decodes it.

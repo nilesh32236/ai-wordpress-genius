@@ -200,7 +200,11 @@ function ai_wp_genius_render_dashboard_page() {
 					<input type="hidden" name="modification_key" value="<?php echo esc_attr( $modification_request['key'] ); ?>" />
 					<?php submit_button( __( 'Approve & Apply Changes', 'ai-wordpress-genius' ), 'primary', 'submit_approve_changes', false ); ?>
 				</form>
-				<a href="<?php echo esc_url( add_query_arg( 'ai_action', 'cancel_modification', admin_url( 'admin.php?page=ai-wordpress-genius' ) ) ); ?>" class="button button-secondary"><?php _e( 'Cancel', 'ai-wordpress-genius' ); ?></a>
+				<form method="post" action="" style="margin: 0;">
+					<?php wp_nonce_field( 'ai_wp_genius_cancel_modification', 'ai_wp_genius_cancel_modification_nonce' ); ?>
+					<input type="hidden" name="modification_key" value="<?php echo esc_attr( $modification_request['key'] ); ?>" />
+					<?php submit_button( __( 'Cancel', 'ai-wordpress-genius' ), 'secondary', 'submit_cancel_modification', false ); ?>
+				</form>
 			</div>
 
 			<hr>
